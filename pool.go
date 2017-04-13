@@ -69,8 +69,12 @@ func NewFixedPool(size int, maker MakerFunc) *Pool {
 
 // Prepopulate the pool with full elements. This will call the maker repeately until it is full
 func (v *Pool) PreFill() {
-	for {
-		elem := element{v.maker(), time.Now()}
+	for i:=0; i < cap(v.queue); i++ {
+		made, err := v.maker()
+		if err != nil {
+			continue
+		}
+		elem := element{made, time.Now()}
 		select {
 		case v.queue <- elem:
 			break
