@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-type MakerFunc func() interface{}
+type MakerFunc func() (interface{}, error)
 type TesterFunc func(interface{}) bool
 type DestroyerFunc func(interface{})
 
@@ -85,7 +85,7 @@ END:
 	return
 }
 // Borrow an object from the pool. If none available, a new one will be created
-func (v *Pool) Borrow() interface{} {
+func (v *Pool) Borrow() (interface{}, error) {
 	select {
 	case c := <-v.queue:
 		data := c.data
@@ -96,7 +96,7 @@ func (v *Pool) Borrow() interface{} {
 				// the thing may need to be validated again
 				if v.tester(data) {
 					// the object is still good
-					return data
+					return data, nil
 				} else {
 					// the data should be discarded, borrow again
 					if v.destroyer != nil {
@@ -110,15 +110,15 @@ func (v *Pool) Borrow() interface{} {
 			}
 		} else {
 			// no need to revalidate again yet
-			return data
+			return data, nil
 		}
 		break
 	default:
 		// queue is empty, need to borrow again
 		return v.maker()
 	}
-	//
-	return nil
+	// should not happen
+	return nil, nil
 }
 
 // Return an object to the pool, the object doesn't has to be borrowed, can be anything
