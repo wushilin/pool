@@ -1,7 +1,7 @@
 package pool
 
 import (
-	_ "sync"
+	"sync"
 	"time"
 )
 
@@ -16,14 +16,14 @@ type element struct {
 }
 
 type Pool struct {
-	//lock                *sync.Mutex
-	queue               chan element
-	created             int64
-	destroyed           int64
-	idleTimeout 	    time.Duration
-	maker               MakerFunc
-	tester              TesterFunc
-	destroyer           DestroyerFunc
+	lock        *sync.Mutex
+	queue       chan element
+	created     int64
+	destroyed   int64
+	idleTimeout time.Duration
+	maker       MakerFunc
+	tester      TesterFunc
+	destroyer   DestroyerFunc
 }
 
 // Set the tester function of the object. When set, objects exceeded idleTimeout will be revalidated before returning
@@ -55,21 +55,24 @@ func NewFixedPool(size int, maker MakerFunc) *Pool {
 	if maker == nil {
 		panic("Need maker function")
 	}
-	return &Pool{
-		//lock:                new(sync.Mutex),
-		queue:               make(chan element, size),
-		created:             0,
-		destroyed:           0,
-		idleTimeout: 	     duration,
-		maker:               maker,
-		tester:              nil,
-		destroyer:           nil,
+	result := &Pool{
+		lock:        new(sync.Mutex),
+		queue:       make(chan element, size),
+		created:     0,
+		destroyed:   0,
+		idleTimeout: duration,
+		maker:       maker,
+		tester:      nil,
+		destroyer:   nil,
 	}
+	result.PreFill()
+	return result
 }
 
 // Prepopulate the pool with full elements. This will call the maker repeately until it is full
+// Failed maker will be discarded. If maker never return successful result, this may be in dead loop
 func (v *Pool) PreFill() {
-	for i:=0; i < cap(v.queue); i++ {
+	for cap(v.queue) > 0 {
 		made, err := v.maker()
 		if err != nil {
 			continue
@@ -77,7 +80,7 @@ func (v *Pool) PreFill() {
 		elem := element{made, time.Now()}
 		select {
 		case v.queue <- elem:
-			break
+			continue
 		default:
 			if v.destroyer != nil {
 				v.destroyer(elem.data)
@@ -88,46 +91,62 @@ func (v *Pool) PreFill() {
 END:
 	return
 }
-// Borrow an object from the pool. If none available, a new one will be created
+
+// Borrow a object from the pool, block until one is available.
+// If an object failed test upon checkout because of tester func fails, a new object will be made and returned
+// Maker will be tried 3 times, with 1 seconds delay in between
 func (v *Pool) Borrow() (interface{}, error) {
-	select {
-	case c := <-v.queue:
-		data := c.data
-		now := time.Now()
-		elapsed := now.Sub(c.lastValidated)
-		if elapsed >= v.idleTimeout {
-			if v.tester != nil {
-				// the thing may need to be validated again
-				if v.tester(data) {
-					// the object is still good
-					return data, nil
-				} else {
-					// the data should be discarded, borrow again
-					if v.destroyer != nil {
-						v.destroyer(data)
-					}
-					return v.Borrow()
-				}
+	c := <-v.queue
+	data := c.data
+	now := time.Now()
+	elapsed := now.Sub(c.lastValidated)
+	if elapsed >= v.idleTimeout {
+		if v.tester != nil {
+			// the thing may need to be validated again
+			if v.tester(data) {
+				// the object is still good
+				return data, nil
 			} else {
-				// objects are discarded directly
-				return v.Borrow()
+				// the data should be discarded, borrow again
+				if v.destroyer != nil {
+					v.destroyer(data)
+				}
+				for j := 0; j < 2; j++ {
+					r, e := v.maker()
+					if e != nil {
+						time.Sleep(time.Second)
+					} else {
+						return r, e
+					}
+				}
+				return v.maker()
 			}
 		} else {
-			// no need to revalidate again yet
-			return data, nil
+			// objects are discarded directly
+			if v.destroyer != nil {
+				v.destroyer(data)
+			}
+			for j := 0; j < 2; j++ {
+				r, e := v.maker()
+				if e != nil {
+					time.Sleep(time.Second)
+				} else {
+					return r, e
+				}
+			}
+			return v.maker()
 		}
-		break
-	default:
-		// queue is empty, need to borrow again
-		return v.maker()
+	} else {
+		// no need to revalidate again yet
+		return data, nil
 	}
-	// should not happen
-	return nil, nil
+
 }
 
-// Return an object to the pool, the object doesn't has to be borrowed, can be anything
+// Return an object to the pool, the object doesn't has to be borrowed
 // Returns true if returned successfully
 // Returns false if pool is full and object had been discarded
+// (which is unlikely unless you returned something extra to the pool)
 func (v *Pool) Return(c interface{}) bool {
 	elem := element{c, time.Now()}
 
