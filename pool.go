@@ -111,7 +111,6 @@ func (v *Pool[T]) PreFill() int {
 			elem := element[T]{made, time.Now()}
 			select {
 			case v.queue <- elem:
-				atomic.AddInt32(&madeCount, 1)
 				return
 			default:
 			    v.wrapDestroyer(elem.data)
