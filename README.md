@@ -25,19 +25,19 @@ func main() {
 }
 
 // Maker will create a random int between 0 and 9
-func maker() interface {} {
+func maker() int {
 	result := rand.Intn(10)
 	fmt.Printf("Made: %d\n", result)
 	return result
 }
 
 // Tester is random, for test to pass, it must be greater than 5, and a random number generated must be even
-func tester(i interface{}) bool {
-	return i.(int) > 5 && rand.Int() %2 == 0
+func tester(i int) bool {
+	return i > 5 && rand.Int() %2 == 0
 }
 
 // Just show case objects are how they are destroyed
-func destroyer(i interface{}) {
+func destroyer(i int) {
 	fmt.Printf("Destroyed: %d\n", i)
 }
 
