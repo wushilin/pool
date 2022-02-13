@@ -16,19 +16,23 @@ func main() {
 	p := pool.NewFixedPool(200, maker).WithTester(tester).WithDestroyer(destroyer).WithIdleTimeout(1)
 	for {
 	    // keep borrowing from the pool
-		k := p.Borrow()
-		// print what is borrowed
-		fmt.Printf("Borrwed %d\n", k)
-		p.Return(k)
+		k, err:= p.Borrow()
+                if err != nil {
+			// do something about it
+		} else {
+			// print what is borrowed
+			fmt.Printf("Borrwed %d\n", k)
+			p.Return(k)
+		}
 		time.Sleep(3*time.Second)
 	}
 }
 
 // Maker will create a random int between 0 and 9
-func maker() int {
+func maker() (int, error) {
 	result := rand.Intn(10)
 	fmt.Printf("Made: %d\n", result)
-	return result
+	return result, nil
 }
 
 // Tester is random, for test to pass, it must be greater than 5, and a random number generated must be even
